@@ -17,7 +17,15 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "generated")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
+def clean_photo_url(url):
+    """Strip HTML entities and TAN overlay watermark parameter."""
+    url = url.replace('&amp;', '&')
+    url = re.sub(r'&overlay=[^&"]*', '', url)
+    return url
+
+
 def build_image(photo_url, beds, baths, price, neighborhood, description):
+    photo_url = clean_photo_url(photo_url)
     resp = requests.get(photo_url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
     resp.raise_for_status()
     img = Image.open(BytesIO(resp.content)).convert("RGB")
@@ -60,6 +68,29 @@ def build_image(photo_url, beds, baths, price, neighborhood, description):
         rf'\g<1>{price.replace("$", "")}\2',
         svg,
     )
+    # Center "OFF-MARKET LOS ANGELES" in the blue box (box center x=541.48)
+    svg = svg.replace(
+        '<text transform="translate(203.16 380.07)"',
+        '<text transform="translate(541.48 380.07)" text-anchor="middle"'
+    )
+
+    # Center neighborhood text in white box (box center x=545.91)
+    # Scale font size down for longer neighborhood names
+    neigh_len = len(neighborhood)
+    if neigh_len <= 12:
+        neigh_fontsize = "58"
+    elif neigh_len <= 16:
+        neigh_fontsize = "50"
+    elif neigh_len <= 20:
+        neigh_fontsize = "42"
+    else:
+        neigh_fontsize = "36"
+
+    svg = re.sub(
+        r'<text transform="translate\(277\.59 950\.23\)"([^>]*?)font-size="58"',
+        f'<text transform="translate(545.91 950.23)" text-anchor="middle"\\1font-size="{neigh_fontsize}"',
+        svg
+    )
     svg = re.sub(r'(<tspan x="0" y="0">)WOODLAND HILLS(</tspan>)', rf'\g<1>{neighborhood}\2', svg)
 
     lines = textwrap.wrap(description, width=44)[:10]
@@ -92,7 +123,7 @@ def generate():
             str(data["beds"]),
             str(data["baths"]),
             str(data["price"]),
-            str(data["neighborhood"]).upper(),
+            str(data["neighborhood"]).strip().upper(),
             str(data["description"])[:300],
         )
     except Exception as e:
